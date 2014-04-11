@@ -1,0 +1,31 @@
+================================================================================================
+AIRS (Auto IdentifieR using SPDX)  
+===============================================================================================
+
+1. INTRODUCION
+----------------
+
+AIRS is a stand-alone tool which has a command line interface, and provides 2 main features.
+  1) Export: Export SPDX file which including identification information of a given project. 
+  2) Auto Identify: Automatically identify the target project with the given SPDX file which has the exported identification information
+
+2. DISTRIBUTED FILES
+---------------------
+
+airs-X.X.jar - Application core
+ldbAutoIdentify.db - database for runnnig application 
+ReleaseNote.txt - Release Note
+airs-X.XX_lib/* - Executable Libraries
+
+3. What's New
+--------------
+
+### AIRS v0.7 2014041 (Protex SDK 6.3/SPDX 1.1) ###
+First Contribution
+
+
+4. Contact us
+--------------
+Youngtaek, Kim (ytaek.kim@samsung.com)
+   
+
