@@ -1,0 +1,1 @@
+This is the repository for the AIRS project contributed by Samsung.  Current committer/maintainer is YoungTaek Kim ytaek.kim@samsung.com.
