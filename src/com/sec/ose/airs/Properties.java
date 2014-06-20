@@ -23,7 +23,7 @@ package com.sec.ose.airs;
  */
 public class Properties {
 	public static final String PROGRAM_NAME = "AIRS";
-	public static final String VERSION = "0.7";
+	public static final String VERSION = "0.8";
 	public static final String AIRS_SPDX_VERSION = "1";
 	public static final String SUPPORTED_SPDX_VERSION = "1.1";
 }

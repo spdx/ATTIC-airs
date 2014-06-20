@@ -39,21 +39,25 @@ import org.spdx.rdfparser.SPDXFile;
 
 import com.blackducksoftware.sdk.fault.SdkFault;
 import com.blackducksoftware.sdk.protex.common.UsageLevel;
-import com.blackducksoftware.sdk.protex.component.custom.CustomComponent;
 import com.blackducksoftware.sdk.protex.component.standard.StandardComponent;
 import com.blackducksoftware.sdk.protex.component.version.ComponentVersion;
-import com.blackducksoftware.sdk.protex.license.GlobalLicense;
 import com.blackducksoftware.sdk.protex.license.LicenseInfo;
+import com.blackducksoftware.sdk.protex.project.codetree.PartialCodeTree;
+import com.blackducksoftware.sdk.protex.project.codetree.discovery.CodeMatchDiscovery;
+import com.blackducksoftware.sdk.protex.project.codetree.discovery.CodeMatchType;
 import com.blackducksoftware.sdk.protex.project.codetree.discovery.StringSearchDiscovery;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.CodeMatchIdentificationDirective;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.CodeMatchIdentificationRequest;
+import com.blackducksoftware.sdk.protex.project.codetree.identification.CodeTreeIdentificationInfo;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.DeclaredIdentificationRequest;
+import com.blackducksoftware.sdk.protex.project.codetree.identification.Identification;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.StringSearchIdentificationRequest;
 import com.blackducksoftware.sdk.protex.project.localcomponent.LocalComponentRequest;
 import com.blackducksoftware.sdk.protex.report.Report;
 import com.sec.ose.airs.Properties;
 import com.sec.ose.airs.domain.autoidentify.AutoIdentifyOptions;
 import com.sec.ose.airs.domain.autoidentify.AutoIdentifyResult;
+import com.sec.ose.airs.domain.autoidentify.IdentificationInfo;
 import com.sec.ose.airs.domain.autoidentify.ProtexIdentificationInfo;
 import com.sec.ose.airs.domain.autoidentify.SPDXFileDTO;
 import com.sec.ose.airs.domain.autoidentify.SPDXPackageDTO;
@@ -74,12 +78,15 @@ public class AIRSProtexService implements AIRSService {
 	final String LICENSE_DELIMITER = "AIRS_LABELMAP_LICENSEID";
 	final String COMPONENT_VERSION_DELIMITER = "AIRS_LABELMAP_COMPONENTID_VERSIONID";
 
-	// label map
-	public HashMap<String, String> licenseLabelMap = new HashMap<String, String>();
-	public HashMap<String, String> componentVersionlabelMap = new HashMap<String, String>();
-	// protex db cache maps
-	private HashMap<String, String> componentMap = new HashMap<String, String>();
+	// license DB maps for AUTO Identify
+	private HashMap<String, String> licenseLabelMap = new HashMap<String, String>();
+	private HashMap<String, String> componentVersionLabelMap = new HashMap<String, String>();
+	private List<String> notUniqueComponentVersionLabelList = new ArrayList<String>();
 	private HashMap<String, String> localComponentNameMap = new HashMap<String, String>();
+	
+	private HashMap<String, String> customLicenseIDMap = new HashMap<String, String>();
+	private HashMap<String, String> localComponentIDMap = new HashMap<String, String>();
+	private HashMap<String, String> customComponentIDMap = new HashMap<String, String>();
 	
 	public ProtexSDKAPIService getProtexSDKAPIService() {
 		return svc;
@@ -90,269 +97,6 @@ public class AIRSProtexService implements AIRSService {
 		svc.init(protexServerIP, userID, password);		
 	}
 	
-	@Override
-	public boolean identifyUsingSPDX(String targetProjectId, SPDXFileDTO sourceSpdxFile, SPDXFileDTO targetSpdxFile, PrintStream out) {
-		
-		ProtexIdentificationInfoService iiServ = new ProtexIdentificationInfoService();
-		List<ProtexIdentificationInfo> infoList = iiServ.extractIdentificationInfoList(sourceSpdxFile); 
-
-		if (infoList == null || infoList.size() < 1)
-			return false;
-		
-		out.println(" > Identifying " + targetSpdxFile.getName() );
-		
-		for (ProtexIdentificationInfo info : infoList) {
-			log.debug(" >> Identifing: " + info);
-
-			String newLicenseId = this.licenseLabelMap.get(info.getLicense());
-			String newComponentName = info.getComponent();
-			String newVersionName = info.getVersion();
-			String newComponentId = "";
-			String newVersionId = "";
-			
-			// TODO - Need License check module 
-			String newLicenseName = info.getLicense();
-//			if (newLicenseName == null) {
-//				log.error("License Name is not found: " + newLicenseId);
-//				continue;
-//			}
-			
-			// match type
-			String matchType = info.getDiscoveryType();
-			if(info.getResolutionType().equals("Declared"))
-				matchType = ProtexIdentificationInfo.PATTERN_MATCH;
-
-			String label = this.componentVersionlabelMap.get(info.getComponent() + "#" + info.getVersion());
-			// component+version id valid check
-			if (this.getComponentIDAndVersionIDWithNames(info.getComponent(), info.getVersion()) == null &&
-					this.getComponentIDByName(info.getComponent()) == null) {
-				// check already local component exists
-				String localComponentId = this.getLocalComponentId(targetProjectId, newComponentName, newLicenseId, newLicenseName);
-				//String localComponentId = this.createLocalComponent(targetProjectId, newComponentName, newLicenseId);
-				label = localComponentId + "#" + "Unspecified";
-			}
-			
-			if ("".equals(ObjectUtils.toString(label))) {
-				log.error("fail to find component id: " + info.getComponent() + ", SKIP this file: " + info.getFilePath());
-				continue;
-			}
-
-			String[] items = StringUtils.split(label, "#");
-			newComponentId = items[0];
-			newVersionId = items[1];
-			
-			// version set when unspecified
-			if ("Unspecified".equals(newVersionName)) {
-				newVersionName = "";
-				newVersionId = "";
-			}
-			
-			ProtexIdentificationInfo newInfo = new ProtexIdentificationInfo();
-			newInfo.setFilePath(targetSpdxFile.getName());
-			newInfo.setComponent(newComponentName);
-			newInfo.setDiscoveryType(matchType);
-			newInfo.setComponentID(newComponentId);
-			newInfo.setVersionID(newVersionId);
-			newInfo.setLicense(newLicenseName);
-			newInfo.setLicenseID(newLicenseId);
-			
-			boolean identifyResult = this.identifyRequest(targetProjectId, newInfo);
-			if (!identifyResult)
-				continue;
-		}
-		return true;
-
-	}
-	
-	
-	@Override
-	public AutoIdentifyResult autoIdentify(List<String> SPDXFileNameList, String targetProjectId, PrintStream out) {
-		out.println("Start AutoIdentify to projectId: " + targetProjectId);
-		out.println(" > Analyze SPDX Document(s) ...");
-		AutoIdentifyService aiSvc = new AutoIdentifyService();
-		AutoIdentifyResult aiResult = new AutoIdentifyResult();
-		
-		
-		/////////////////////////////////////////////////////////////
-		// 1. create package from spdx file and insert it to local db
-		// and hold package id list
-		// and Build Label map
-		List<Integer> pkgIdList = new ArrayList<Integer>();
-		for(String path : SPDXFileNameList) {
-			out.println(" >> Read identification info from file: " + path);
-			
-			try {
-				SPDXDocument doc = null;
-				try {
-					doc = SPDXDocumentFactory.creatSpdxDocument(path);
-				} catch (IOException e) {
-					log.error(e.getMessage());
-					throw e;
-				} catch (InvalidSPDXAnalysisException e) {
-					log.error(e.getMessage());
-					throw e;
-				}
-
-				String comment = doc.getCreatorInfo().getComment();
-				
-				// parsing label maps
-				String[] lines = StringUtils.split(comment, "\n");
-				boolean licenseLine = false;
-				boolean compVerLine = false;
-				
-				for (String line : lines) {
-					if (LICENSE_DELIMITER.equals(line)) {
-						licenseLine = true;
-						compVerLine = false;
-						continue;
-					} else if (COMPONENT_VERSION_DELIMITER.equals(line)) {
-						compVerLine = true;
-						licenseLine = false;
-						continue;
-					} else if ("\n".equals(line)) {
-						licenseLine = compVerLine = false;
-					}
-					
-					if (licenseLine) {
-						String[] items = StringUtils.split(line, "=");
-						if (!licenseLabelMap.containsKey(items[0])) {
-							licenseLabelMap.put(items[0], items[1]);
-						}
-					} else if (compVerLine) {
-						String[] items = StringUtils.split(line, "=");
-						if (!componentVersionlabelMap.containsKey(items[0])) {
-							componentVersionlabelMap.put(items[0], items[1]);
-						}
-					}
-				}
-				
-				SPDXPackageDTO pkg = aiSvc.convertParserFormatToAIRSDB(doc);
-				aiResult.getSourceSPDXPackageList().add(pkg);
-				pkgIdList.add(aiSvc.insertSPDXPackageDataOnlyHavingIdentificationInfo(pkg));
-				
-				// FOR GC (reduce memory consumption ...)
-				pkg.setFileList(null);
-			} catch (Exception e) {
-				log.error("SPDX Document Parsing failed: " + path + "\n" + e.getMessage());
-				return null;
-			}
-		}
-		
-		out.println(" > Analyze current project information ...");
-		///////////////////////////////////////////////////////////
-		// 2. Create current project's SPDX document
-		String currentProjectSPDXContent;
-		try {
-			currentProjectSPDXContent = svc.getSPDXReportContentString(targetProjectId, "org", "orgFile", "sec", "system", "");
-		} catch (SdkFault e1) {
-			log.error(e1.getMessage());
-			out.println("Error occured when creating current project's SPDX document");
-			return null;
-		}
-		
-		// parsing it, and hold it in memory
-		// TODO - in phase 2, it better to go to DB.
-		SPDXPackageDTO tgtPkg = null;
-		try {
-			// TODO - encoding 처리
-			tgtPkg = aiSvc.parseSPDXDocumentContent(currentProjectSPDXContent, "UTF-8");
-		} catch (Exception e) {
-			log.error("Couldn't analyze current project information.\nPlease contact admin.\n" + e.getMessage());
-			return null;
-		}
-		
-		out.println(" > Start Auto Identify processing ...\n");
-		
-		///////////////////////////////////////////////////////////		
-		// 3. Auto Identify!
-		AutoIdentifyOptions options = new AutoIdentifyOptions();
-		
-		String pMessage = null;
-		int aiCount = 0;
-		int aiError = 0;
-		int multipleMatchedCount = 0;
-		int noMathcedFileCount = 0;
-		int totalFileCount = 0;
-		int targetFileCount = tgtPkg.getFileList().size();
-		for (SPDXFileDTO targetFile : tgtPkg.getFileList()) {
-			totalFileCount++;
-			out.println( "(" + totalFileCount + "/" + targetFileCount + ") " + targetFile.getName() + " checking...");
-			List<SPDXFileDTO> fileList = aiSvc.getFileListByComparingHashCodeAndIdentificaionInfo(pkgIdList, targetFile, options);
-
-			if (fileList != null) {
-				// AI success
-				if (fileList.size() == 1) {
-					if (this.identifyUsingSPDX(targetProjectId, fileList.get(0), targetFile, out)) {
-						pMessage = targetFile.getName() + ": Auto-identified.";
-						aiCount++;
-					} else {
-					// CANNOT Happen for now.
-						log.error("Filelist has a same matched file, but no ident info. THIS SHOULDn't happen");
-						pMessage = targetFile.getName() + ": has a same matched file, but no identification info";
-						aiError++;
-					}
-				} else if (fileList.size() > 1) {
-					pMessage = targetFile.getName() + ": has multiple matched files with different identification data.";
-					multipleMatchedCount++;
-					aiResult.getFailedPairList().add(aiResult.new MatchedFilePair(targetFile, fileList));
-				// No Matched
-				} else if (fileList.size() == 0){
-					pMessage = targetFile.getName() + ": has no matched file";
-					noMathcedFileCount++;
-				}
-			// AI FAIL
-			} else {
-				log.error("Auto-identify Failed.THIS SHOULDn't happen");
-				pMessage = targetFile.getName() + ": Auto-identify Failed.";
-			}
-						
-			out.println(" >> " + pMessage);
-		}
-		
-		/////////////////////////////////////////////////////
-		// refresh bom
-		// moved from pattern match
-		try {
-			svc.getBomAPI().refreshBom(targetProjectId, Boolean.TRUE, Boolean.FALSE);
-			out.println("BOM Refreshing (it takes some minutes) ...");
-		} catch (SdkFault e) {
-			log.error("error when refresh bom lastly");
-		}
-		/////////////////////////////////////////////////////
-		
-		// empty source spdx package in local db
-		for (int packageId : pkgIdList)
-			aiSvc.deleteSPDXPackage(packageId);
-		
-		aiResult.setAiCount(aiCount);
-		aiResult.setAiError(aiError);
-		aiResult.setMultipleMatchedCount(multipleMatchedCount);
-		aiResult.setNoMathcedFileCount(noMathcedFileCount);
-		aiResult.setTotalFileCount(totalFileCount);
-		
-		out.println("AI Finished!");
-		out.println("+----------------------------------------------+");
-		out.println("ㅣ Total File count : " + aiResult.getTotalFileCount());
-		out.println("ㅣ Auto-identified count : " + aiResult.getAiCount());
-		out.println("ㅣ same matched file, but error : " + aiError);
-		out.println("ㅣ multiple matched count : " + multipleMatchedCount);
-		out.println("ㅣ no matched file count : " + noMathcedFileCount);
-		out.println("+----------------------------------------------+");
-		
-		return aiResult;
-	}
-
-	@Override
-	public AutoIdentifyResult autoIdentifyByProjectName(List<String> SPDXFileNameList,
-			String targetProjectName, PrintStream out) {
-		try {
-			return this.autoIdentify(SPDXFileNameList, svc.getProjectAPI().getProjectByName(targetProjectName).getProjectId(), out);
-		} catch (SdkFault e) {
-			log.error(e.getMessage());
-			return null;
-		}
-	}
-
 	@Override
 	public boolean export(String projectId, String targetFilePath,
 			String packageName, String packageFileName,
@@ -370,15 +114,18 @@ public class AIRSProtexService implements AIRSService {
         
         HashMap<String, String> exportLicenseLabelMap = new HashMap<String, String>();
         HashMap<String, String> exportComponentVersionLabelMap = new HashMap<String, String>();
-		HashMap<String, List<ProtexIdentificationInfo>> identificationInfoList = this.getIdentificationInfoList(projectId, exportLicenseLabelMap, exportComponentVersionLabelMap, out);
+        HashMap<String, String> duplicatedExportComponentVersionLabelMap = new HashMap<String, String>();
+        
+		HashMap<String, List<ProtexIdentificationInfo>> identificationInfoList = this.getIdentificationInfoList(projectId, exportLicenseLabelMap, exportComponentVersionLabelMap, duplicatedExportComponentVersionLabelMap);
         
 		// when empty project (no pending/identify list) 
 		if (identificationInfoList == null) {
 			out.println("project: " + projectId + " is empty or not analyzed yet.");
-			System.exit(0);
+			return false;
 		}
 		
-		// Read SPDX and write identification info to it.
+		//////////////////////////////////////////////////////
+		// ADD Identification Information into file comment
 		SPDXDocument doc; 
 		try {
 	        StringBuilder sb = new StringBuilder();
@@ -391,7 +138,11 @@ public class AIRSProtexService implements AIRSService {
 			}
 			
 			out.println(" > Rebuild SPDX Report...");
-			InputStream is = new ByteArrayInputStream(sb.toString().getBytes("UTF-8")); 
+			
+			tmpStr = sb.toString(); sb = null; // for GC
+			byte[] bytes = tmpStr.getBytes("UTF-8"); tmpStr = null; // for GC
+			
+			InputStream is = new ByteArrayInputStream(bytes); 
 			doc = SPDXDocumentFactory.creatSpdxDocument(is, null, null);
 			is.close();
 			
@@ -401,6 +152,7 @@ public class AIRSProtexService implements AIRSService {
 			}
 			
 			out.println(" > Write Identification info to SPDX Report...");
+
 			for (Map.Entry<String, List<ProtexIdentificationInfo>> entrySet : identificationInfoList.entrySet()) {
 				String identifyFilePath = entrySet.getKey();
 				List<ProtexIdentificationInfo> infoList = entrySet.getValue();
@@ -440,6 +192,13 @@ public class AIRSProtexService implements AIRSService {
 				sb.append(entrySet.getValue());
 				sb.append("\n");
 			}
+			for (Map.Entry<String, String> entrySet : duplicatedExportComponentVersionLabelMap.entrySet()) {
+				sb.append(entrySet.getKey());
+				sb.append("=");
+				sb.append(entrySet.getValue());
+				sb.append("\n");
+				log.debug("Duplicated: " + entrySet.getKey() + "/" + entrySet.getValue());
+			}
 			sb.append("\n");
 			
 			doc.getCreatorInfo().setComment(doc.getCreatorInfo().getComment() + ver + sb.toString());
@@ -469,24 +228,514 @@ public class AIRSProtexService implements AIRSService {
 	}
 
 	
-
-	protected boolean identifyRequest(String targetProjectId, ProtexIdentificationInfo info) {
-		String matchType = info.getDiscoveryType();
-		String newComponentId = info.getComponentID();
-		String newVersionId = info.getVersionID();
+	protected HashMap<String, List<ProtexIdentificationInfo>> getIdentificationInfoList(String projectId, HashMap<String, String> exportLicenseLabelMap, HashMap<String, String> exportComponentVersionLabelMap, HashMap<String, String> duplicatedExportComponentVersionLabelMap) {
+		HashMap<String, List<ProtexIdentificationInfo>> identificationInfoFiles = svc.getIdentificationInfoList(projectId);
+		// when empty project (no pending/identify list) 
+		if (identificationInfoFiles == null)
+			return null; 
 		
+		for (Map.Entry<String, List<ProtexIdentificationInfo>> entrySet : identificationInfoFiles.entrySet()) {
+			String filePath = entrySet.getKey();
+			
+			List<ProtexIdentificationInfo> list = this.getIDsFromIdentificationResult(projectId, filePath);
+			for (ProtexIdentificationInfo info : list) {
+//if (!info.getFilePath().equals("libiconv-1.9.1/m4/iconv.m4"))
+//	continue;
+//else
+//	System.out.println("gogo");
+				/////////////////////////////////
+				// 1. license lablemap
+				/////////////////////////////////
+				if (!exportLicenseLabelMap.containsKey(info.getLicense())) {
+					exportLicenseLabelMap.put(info.getLicense(), info.getLicenseID());
+				}
+				
+				///////////////////////////////////
+				// 2-1. get protex Component/Version IDs
+				///////////////////////////////////
+				if (info.getVersionID() == null || "null".equalsIgnoreCase(info.getVersionID()) || "Unspecified".equalsIgnoreCase(info.getVersionID())) {
+					info.setComponent(svc.getComponentNameByProjectIDAndComponentID(projectId, info.getComponentID()));
+				} else {
+					ProtexIdentificationInfo nameInfo = getComponentVersionNamesWithIDs(info.getComponentID(), info.getVersionID());
+					if (nameInfo == null) {
+						continue;
+					}
+					info.setComponent(nameInfo.getComponent());
+					info.setVersion(nameInfo.getVersion());
+				}
+
+				///////////////////////////////////
+				// 2-2. update protex Component/Version Lable map
+				///////////////////////////////////
+				// couldn't find component ID ... then skip
+				String key = info.getComponent() + "#" + info.getVersion();					
+				String value = info.getComponentID() + "#" + info.getVersionID();
+				if (!exportComponentVersionLabelMap.containsKey(key)) {
+					if (!"#".equals(key)) {
+						exportComponentVersionLabelMap.put(key, value);
+					}
+				} else {
+					// check component/version name+id not unique  
+					if (!value.equals(exportComponentVersionLabelMap.get(key))) { 
+						duplicatedExportComponentVersionLabelMap.put(key, value);
+					}
+				}
+			}
+		}
+		
+		return identificationInfoFiles;
+	}
+	
+
+	protected List<ProtexIdentificationInfo> getIDsFromIdentificationResult(String projectId, String filePath) {
+		List<ProtexIdentificationInfo> list = new ArrayList<ProtexIdentificationInfo>();
+		
+		PartialCodeTree partialCodeTree = null;
+		try {
+			partialCodeTree = svc.getCodeTreeAPI().getCodeTree(projectId, "/" + filePath, 0, Boolean.TRUE);
+			List<CodeTreeIdentificationInfo> idInfos = svc.getIdentificationAPI().getEffectiveIdentifications(projectId, partialCodeTree);
+
+			for (CodeTreeIdentificationInfo idInfo : idInfos) {
+				for (Identification id : idInfo.getIdentifications()) {
+					ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+					info.setComponentID(id.getIdentifiedComponentId());
+					info.setVersionID(id.getIdentifiedVersionId());
+					info.setLicenseID(id.getIdentifiedLicenseInfo().getLicenseId());
+					info.setLicense(id.getIdentifiedLicenseInfo().getName());
+					list.add(info);					
+				}
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+		
+		return list;
+	}
+	
+	protected ProtexIdentificationInfo getIdentificationDataFromIdentificationResult(String projectId, ProtexIdentificationInfo orgInfo) {
+		ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+		
+		PartialCodeTree partialCodeTree = null;
+		try {
+			partialCodeTree = svc.getCodeTreeAPI().getCodeTree(projectId, "/" + orgInfo.getFilePath(), 0, Boolean.TRUE);
+			List<CodeTreeIdentificationInfo> idInfos = svc.getIdentificationAPI().getEffectiveIdentifications(projectId, partialCodeTree);
+			
+			for (CodeTreeIdentificationInfo idInfo : idInfos) {
+				for (Identification id : idInfo.getIdentifications()) {
+					String name = svc.getComponentNameByProjectIDAndComponentID(projectId, id.getIdentifiedComponentId());
+					if (name.equals(orgInfo.getComponent())) {
+						info.setComponentID(id.getIdentifiedComponentId());
+						info.setVersionID(id.getIdentifiedVersionId());
+						info.setLicenseID(id.getIdentifiedLicenseInfo().getLicenseId());
+						info.setLicense(id.getIdentifiedLicenseInfo().getName());
+					}
+				}
+				if (info.getComponentID() != null) {
+					break;
+				} else {
+					// if reported component name is different from identified component name,
+					// then compare it to discovery
+					ProtexIdentificationInfo discoveryInfo = this.getComponentVersionIDFromDiscovery(projectId, orgInfo.getFilePath(), orgInfo.getMatchedFile());
+					for (Identification id : idInfo.getIdentifications()) {
+						if (discoveryInfo.getComponentID().equals(id.getIdentifiedComponentId())) {
+							info.setComponentID(id.getIdentifiedComponentId());
+							info.setVersionID(id.getIdentifiedVersionId());
+							info.setLicenseID(id.getIdentifiedLicenseInfo().getLicenseId());
+							info.setLicense(id.getIdentifiedLicenseInfo().getName());
+						}
+					}
+				}
+			}
+
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+		
+		return info;
+	}
+	
+	
+	protected ProtexIdentificationInfo getComponentVersionIDFromDiscovery(String projectId, String filePath, String matchedFile) {
+		ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+
+		PartialCodeTree partialCodeTree = null;
+		try {
+			partialCodeTree = svc.getCodeTreeAPI().getCodeTree(projectId, "/" + filePath, 0, Boolean.TRUE);
+
+			List<CodeMatchType> precisionOnly = new ArrayList<CodeMatchType>(1);
+			precisionOnly.add(CodeMatchType.PRECISION);
+			List<CodeMatchDiscovery> discoveries = null;
+			discoveries = svc.getDiscoveryAPI().getCodeMatchDiscoveries(projectId, partialCodeTree, precisionOnly);
+			if (discoveries.size() != 0) {
+				for (CodeMatchDiscovery discovery : discoveries) {
+					if (discovery.getMatchingFileLocation().getFilePath().equals(matchedFile)) {
+						info.setComponentID(discovery.getMatchingComponentId());
+						info.setVersionID(discovery.getMatchingVersionId());
+						break;
+					}
+				}
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+
+		return info;
+	}
+	
+
+	
+	@Override
+	public AutoIdentifyResult autoIdentify(List<String> SPDXFileNameList, String targetProjectId, PrintStream out) {
+		out.println("Start AutoIdentify to projectId: " + targetProjectId);
+		out.println(" > Analyze SPDX Document(s) ...");
+		AutoIdentifyService aiSvc = new AutoIdentifyService();
+		AutoIdentifyResult aiResult = new AutoIdentifyResult();
+		
+		
+		/////////////////////////////////////////////////////////////
+		// 1. create package from spdx file and insert it to local db
+		// and hold package id list
+		// and Build Label map
+		List<Integer> pkgIdList = new ArrayList<Integer>();
+		for(String path : SPDXFileNameList) {
+			out.println(" >> Read identification info from file: " + path);
+			
+			try {
+				SPDXDocument doc = null;
+				try {
+					doc = SPDXDocumentFactory.creatSpdxDocument(path);
+				} catch (IOException e) {
+					log.error(e.getMessage());
+					throw e;
+				} catch (InvalidSPDXAnalysisException e) {
+					log.error(e.getMessage());
+					throw e;
+				}
+
+				String comment = doc.getCreatorInfo().getComment();
+				
+				// parsing label maps
+				String[] lines = StringUtils.split(comment, "\n");
+				boolean licenseLine = false;
+				boolean compVerLine = false;
+				
+				
+				for (String line : lines) {
+					if (LICENSE_DELIMITER.equals(line)) {
+						licenseLine = true;
+						compVerLine = false;
+						continue;
+					} else if (COMPONENT_VERSION_DELIMITER.equals(line)) {
+						compVerLine = true;
+						licenseLine = false;
+						continue;
+					} else if ("\n".equals(line)) {
+						licenseLine = compVerLine = false;
+					}
+					
+					String[] items = StringUtils.split(line, "=");
+					if (licenseLine) {
+						if (!licenseLabelMap.containsKey(items[0])) {
+							licenseLabelMap.put(items[0], items[1]);
+						}
+					} else if (compVerLine) {
+						// save duplicated line
+						if (!componentVersionLabelMap.containsKey(items[0])) {
+							componentVersionLabelMap.put(items[0], items[1]);
+						} else {
+							notUniqueComponentVersionLabelList.add(line.trim());
+						}
+					}
+				}
+				for (Map.Entry<String, String> entrySet : componentVersionLabelMap.entrySet()) {
+					// find not unique data in labelmap and move it to notUniqueComponentVersionLabelList
+					for (String label : notUniqueComponentVersionLabelList) {
+						if (entrySet.getKey().equals(StringUtils.split(label, "=")[0])) {
+							notUniqueComponentVersionLabelList.add(entrySet.getKey() + "=" + entrySet.getValue());
+							componentVersionLabelMap.remove(entrySet.getKey());
+						}
+					}
+				}
+				
+				SPDXPackageDTO pkg = aiSvc.convertParserFormatToAIRSDB(doc);
+				aiResult.getSourceSPDXPackageList().add(pkg);
+				pkgIdList.add(aiSvc.insertSPDXPackageDataOnlyHavingIdentificationInfo(pkg));
+				
+				// FOR GC (reduce memory consumption ...)
+				pkg.setFileList(null);
+			} catch (Exception e) {
+				log.error("SPDX Document Parsing failed: " + path + "\n" + e.getMessage());
+				return null;
+			}
+		}
+		
+		out.println(" > Analyze current project information ...");
+		out.println(" >> Get current project information by SPDX report generation ...");
+		///////////////////////////////////////////////////////////
+		// 2. Create current project's SPDX document and Pending list data
+		String currentProjectSPDXContent;
+		try {
+			currentProjectSPDXContent = svc.getSPDXReportContentString(targetProjectId, "org", "orgFile", "sec", "system", "");
+		} catch (SdkFault e1) {
+			log.error(e1.getMessage());
+			out.println("Error occured when creating current project's SPDX document");
+			return null;
+		}
+		out.println(" >> Get all pending list ...");
+		HashMap<String, List<IdentificationInfo>> pendingListMap = svc.getAllPendingListMap(targetProjectId);
+		
+		
+		// parsing it, and hold it in memory
+		// TODO - in phase 2, it better to go to DB.
+		SPDXPackageDTO tgtPkg = null;
+		try {
+			// TODO - encoding
+			tgtPkg = aiSvc.parseSPDXDocumentContent(currentProjectSPDXContent, "UTF-8");
+		} catch (Exception e) {
+			log.error("Couldn't analyze current project information.\nPlease contact admin.\n" + e.getMessage());
+			return null;
+		}
+		
+		out.println(" > Start Auto Identify processing ...\n");
+		
+		///////////////////////////////////////////////////////////		
+		// 3. Auto Identify!
+		AutoIdentifyOptions options = new AutoIdentifyOptions();
+		
+		String pMessage = null;
+		int aiCount = 0;
+		int aiError = 0;
+		int multipleMatchedCount = 0;
+		int noMathcedFileCount = 0;
+		int totalFileCount = 0;
+		int targetFileCount = tgtPkg.getFileList().size();
+		for (SPDXFileDTO targetFile : tgtPkg.getFileList()) {
+			totalFileCount++;
+			
+			out.println( "(" + totalFileCount + "/" + targetFileCount + ") " + targetFile.getName() + " checking...");
+			// add identification info for overwrite option
+			targetFile.setIdentificationInfoList(pendingListMap.get(targetFile.getName()));
+			List<SPDXFileDTO> fileList = aiSvc.getFileListByComparingHashCodeAndIdentificaionInfo(pkgIdList, targetFile, options);
+
+			if (fileList != null) {
+				// AI success
+				if (fileList.size() == 1) {
+					if (this.identifyUsingSPDX(targetProjectId, fileList.get(0), targetFile, out)) {
+						pMessage = targetFile.getName() + ": Auto-identified.";
+						aiCount++;
+					} else {
+					// CANNOT Happen for now.
+						log.error("Filelist has a same matched file, but no ident info. THIS SHOULDn't happen");
+						pMessage = targetFile.getName() + ": has a same matched file, but no identification info";
+						aiError++;
+					}
+				} else if (fileList.size() > 1) {
+					pMessage = targetFile.getName() + ": has multiple matched files with different identification data.";
+					multipleMatchedCount++;
+					aiResult.getFailedPairList().add(aiResult.new MatchedFilePair(targetFile, fileList));
+				// No Matched
+				} else if (fileList.size() == 0){
+					pMessage = targetFile.getName() + ": has no matched file";
+					noMathcedFileCount++;
+				}
+			// AI FAIL
+			} else {
+				log.error("Auto-identify Failed.THIS SHOULDn't happen");
+				pMessage = targetFile.getName() + ": Auto-identify Failed.";
+			}
+			
+			out.println(" >> " + pMessage);
+		}
+		
+		/////////////////////////////////////////////////////
+		// refresh bom
+		// moved from pattern match
+		try {
+			svc.getBomAPI().refreshBom(targetProjectId, Boolean.TRUE, Boolean.FALSE);
+			out.println("BOM Refreshing (it takes some minutes) ...");
+		} catch (SdkFault e) {
+			log.error("error when refresh bom lastly");
+		}
+		/////////////////////////////////////////////////////
+		
+		// empty source spdx package in local db
+		for (int packageId : pkgIdList)
+			aiSvc.deleteSPDXPackage(packageId);
+		
+		aiResult.setAiCount(aiCount);
+		aiResult.setAiError(aiError);
+		aiResult.setMultipleMatchedCount(multipleMatchedCount);
+		aiResult.setNoMathcedFileCount(noMathcedFileCount);
+		aiResult.setTotalFileCount(totalFileCount);
+		
+		out.println("AI Finished!");
+		out.println("+----------------------------------------------+");
+		out.println(" Total File count : " + aiResult.getTotalFileCount());
+		out.println(" Auto-identified count : " + aiResult.getAiCount());
+		out.println(" same matched file, but error : " + aiError);
+		out.println(" multiple matched count : " + multipleMatchedCount);
+		out.println(" no matched file count : " + noMathcedFileCount);
+		out.println("+----------------------------------------------+");
+		
+		return aiResult;
+	}
+
+	@Override
+	public AutoIdentifyResult autoIdentifyByProjectName(List<String> SPDXFileNameList,
+			String targetProjectName, PrintStream out) {
+		try {
+			return this.autoIdentify(SPDXFileNameList, svc.getProjectAPI().getProjectByName(targetProjectName).getProjectId(), out);
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+
+	
+	@Override
+	public boolean identifyUsingSPDX(String targetProjectId, SPDXFileDTO sourceSpdxFile, SPDXFileDTO targetSpdxFile, PrintStream out) {
+		
+		ProtexIdentificationInfoService iiServ = new ProtexIdentificationInfoService();
+		List<ProtexIdentificationInfo> infoList = iiServ.extractIdentificationInfoList(sourceSpdxFile); 
+
+		if (infoList == null || infoList.size() < 1)
+			return false;
+		
+		out.println(" > Identifying " + targetSpdxFile.getName() );
+		
+		for (ProtexIdentificationInfo info : infoList) {
+			log.debug(" >> Identifing: " + info);
+			IdentificationInfo targetInfo = null;
+			if (targetSpdxFile.getIdentificationInfoList() != null) {
+				for (IdentificationInfo pendingInfo : targetSpdxFile.getIdentificationInfoList()) {
+					if (pendingInfo.getMatchedFile().equals(info.getMatchedFile())) {
+						targetInfo = pendingInfo;
+						break;
+					}
+				}
+			}
+			if (targetInfo == null) {
+				targetInfo = new IdentificationInfo();
+			}
+			targetInfo.setFilePath(targetSpdxFile.getName());
+			
+			boolean identifyResult = this.identifyRequest(targetProjectId, info, targetInfo);
+			if (identifyResult == false) log.error(">>>Identify failed - " + info.getFilePath());
+			if (!identifyResult)
+				continue;
+		}
+		return true;
+	}
+	
+
+	protected boolean identifyRequest(String targetProjectId, ProtexIdentificationInfo srcInfo, IdentificationInfo targetInfo) {
+		
+//if (!srcInfo.getFilePath().endsWith("/immodules/ibus/ibus_imcontext.c")) {
+//	return false;
+//}
+//		
+
+		String newLicenseId = this.licenseLabelMap.get(srcInfo.getLicense());		
+		String newComponentName = srcInfo.getComponent();
+		String newVersionName = srcInfo.getVersion();
+		String newComponentId = "";
+		String newVersionID = "";
+		
+		///////////////////////////////////////////////////////////
+		// 1. License valid check
+		///////////////////////////////////////////////////////////
+		String newLicenseName = srcInfo.getLicense();
+		// custom license
+		if (newLicenseId == null) {
+			log.error("License ID of \"" + newLicenseName + "\" doesn't exists.");
+			return false;
+		}
+		if (newLicenseId.startsWith("c_")) {
+			if (customLicenseIDMap.containsKey(srcInfo.getLicense())) {
+				newLicenseId = customLicenseIDMap.get(srcInfo.getLicense());
+			} else {	
+				newLicenseId = svc.getLicenseIdByName(srcInfo.getLicense());
+				customLicenseIDMap.put(srcInfo.getLicense(), newLicenseId);
+			}
+		}
+		if (newLicenseName == null || newLicenseId == null) {
+			log.error("License is not found: " + newLicenseId + "/" + newLicenseName);
+			return false;
+		}
+		
+		// match type
+		String matchType = srcInfo.getDiscoveryType();
+		if("Declared".equals(srcInfo.getResolutionType()))
+			matchType = ProtexIdentificationInfo.PATTERN_MATCH;
+		
+		String key = srcInfo.getComponent() + "#" + srcInfo.getVersion();
+		String label = this.componentVersionLabelMap.get(key);
+		
+		///////////////////////////////////////////////////////////
+		// 2. Component Version valid check
+		///////////////////////////////////////////////////////////
+		if (label == null) {
+			List<String> notUniqueLabelList = new ArrayList<String>();
+			for (String notUniqueLabel : notUniqueComponentVersionLabelList) {
+				if (key.equalsIgnoreCase(StringUtils.split(notUniqueLabel, "=")[0])) {
+					notUniqueLabelList.add(notUniqueLabel);
+				}
+			}
+			if (notUniqueLabelList.size() == 0) {
+				// TODO - open-source IDB?
+				log.error("ComponentVersion is not on label map");
+				return false;
+			// when found in notUniqueLabelList
+			} else {
+				// TODO - find matched ID in Discovery Pending List
+				log.error("find matched ID in Discovery Pending List");
+				ProtexIdentificationInfo discoveryInfo = this.getComponentVersionIDFromDiscovery(targetProjectId, targetInfo.getFilePath(), srcInfo.getMatchedFile());
+				newComponentId = discoveryInfo.getComponentID();
+				newVersionID = discoveryInfo.getVersionID();
+			}
+		} else {
+			if ("".equals(ObjectUtils.toString(label))) {
+				log.error("fail to find component id: " + srcInfo.getComponent() + ", SKIP this file info: " + srcInfo.toString());
+				return false;
+			}
+	
+			String[] items = StringUtils.split(label, "#");
+			newComponentId = items[0];
+			newVersionID = items[1];
+			
+			// when custom or local component
+			if (newComponentId.startsWith("c_")) {
+				String nonStandardComponentId = this.getNotStandardComponentIdByName(targetProjectId, newComponentName);
+				if (nonStandardComponentId == null) {
+					nonStandardComponentId = this.getLocalComponentIdWhenNotExsitingCreate(targetProjectId, newComponentName, newLicenseId, newLicenseName);
+				}
+				newComponentId = nonStandardComponentId;
+				newVersionID = "";
+			}
+		}
+		// version set when unspecified
+		if ("Unspecified".equals(newVersionName) || "null".equalsIgnoreCase(newVersionName) || newVersionName == null) {
+			newVersionName = "";	//TODO null? Unspecified
+			newVersionID = "";
+		}
+		if (newVersionID == null || "null".equalsIgnoreCase(newVersionID)) {
+			newVersionID = "";
+		}
 		LicenseInfo identifiedLicenseInfo = new LicenseInfo();
-		identifiedLicenseInfo.setLicenseId(info.getLicenseID());
-		identifiedLicenseInfo.setName(info.getLicense());
+		identifiedLicenseInfo.setLicenseId(newLicenseId);
+		identifiedLicenseInfo.setName(newLicenseName);
 		
 		// IDENTIFY
 		if (ProtexIdentificationInfo.STRING_SEARCH.equals(matchType)) {
 			if (newComponentId == null) {
-				log.error("fail to create local component id. SKIP this file: " + info.getFilePath());
+				log.error("fail to create local component id. SKIP this file: " + srcInfo.getFilePath());
 				return false;
 			}
 	
-			List<StringSearchDiscovery> listStringSearchDiscovery = svc.getStringSearchDiscoveries(targetProjectId, info.getFilePath());
+			List<StringSearchDiscovery> listStringSearchDiscovery = svc.getStringSearchDiscoveries(targetProjectId, targetInfo.getFilePath());
 			for (StringSearchDiscovery oStringSearchDiscovery : listStringSearchDiscovery) {
 				StringSearchIdentificationRequest oStringSearchIdentificationRequest = new StringSearchIdentificationRequest();
 				oStringSearchIdentificationRequest.setIdentifiedComponentId(newComponentId);
@@ -498,7 +747,7 @@ public class AIRSProtexService implements AIRSService {
 				oStringSearchIdentificationRequest.getMatchLocations().addAll(oStringSearchDiscovery.getMatchLocations());
 				svc.addStringSearchIdentification(targetProjectId, oStringSearchDiscovery.getFilePath(), oStringSearchIdentificationRequest);
 	
-				// TODO - pending 
+				// TODO - pending
 	//			boolean pendingExist = false;
 	//			for (StringSearchMatchLocation location : oStringSearchDiscovery.getMatchLocations()) {
 	//				if (location.getIdentificationStatus() == IdentificationStatus.PENDING_IDENTIFICATION) {
@@ -517,32 +766,49 @@ public class AIRSProtexService implements AIRSService {
 	//				oStringSearchIdentificationRequest.setStringSearchId(oStringSearchDiscovery.getStringSearchId());
 	//				oStringSearchIdentificationRequest.getMatchLocations().addAll(oStringSearchDiscovery.getMatchLocations());
 	//				apiSvc.addStringSearchIdentification(targetProjectId, oStringSearchDiscovery.getFilePath(), oStringSearchIdentificationRequest);
-	//			}						
+	//			}
 			}
 			
 			
 		} else if (ProtexIdentificationInfo.CODE_MATCH.equals(matchType)) {
+			// TODO - modify this part ...
+			String orgComponentId = null;
+			String orgVersionId = null;
+			if (targetInfo.getComponent() != null) {
+				ProtexIdentificationInfo orgInfo = this.getComponentVersionIDWithNames(targetInfo.getComponent(), targetInfo.getVersion());			
+				if (orgInfo == null) {
+					orgComponentId = this.getComponentIDByName(targetInfo.getComponent());
+				} else {
+					orgComponentId = orgInfo.getComponentID();
+					orgVersionId = orgInfo.getVersionID();
+				}
+			} else {
+				orgComponentId = newComponentId;
+				orgVersionId = newVersionID;
+			}
+			
 			CodeMatchIdentificationRequest codeMatchIdentificationRequest = new CodeMatchIdentificationRequest();
 			
-			codeMatchIdentificationRequest.setDiscoveredVersionId(newVersionId);
-			codeMatchIdentificationRequest.setDiscoveredComponentId(newComponentId);
-			codeMatchIdentificationRequest.setIdentifiedVersionId(newVersionId);
+			codeMatchIdentificationRequest.setDiscoveredVersionId(orgVersionId);
+			codeMatchIdentificationRequest.setDiscoveredComponentId(orgComponentId);
+			
+			codeMatchIdentificationRequest.setIdentifiedVersionId(newVersionID);
 			codeMatchIdentificationRequest.setIdentifiedComponentId(newComponentId);
 			codeMatchIdentificationRequest.setCodeMatchIdentificationDirective(CodeMatchIdentificationDirective.SNIPPET_AND_FILE);
 			codeMatchIdentificationRequest.setIdentifiedUsageLevel(UsageLevel.SNIPPET);
 			codeMatchIdentificationRequest.setIdentifiedLicenseInfo(identifiedLicenseInfo);
 	
-			svc.addCodeMatchIdentification(targetProjectId, "/" + info.getFilePath(), codeMatchIdentificationRequest);
+			return svc.addCodeMatchIdentification(targetProjectId, "/" + targetInfo.getFilePath(), codeMatchIdentificationRequest);
 		} else if (ProtexIdentificationInfo.PATTERN_MATCH.equals(matchType)) {
 			DeclaredIdentificationRequest oDeclaredIdentificationRequest = new DeclaredIdentificationRequest();
 	
-			oDeclaredIdentificationRequest.setPath(info.getFilePath());
+			oDeclaredIdentificationRequest.setPath(srcInfo.getFilePath());
 			oDeclaredIdentificationRequest.setIdentifiedComponentId(newComponentId);
-			oDeclaredIdentificationRequest.setIdentifiedVersionId(newVersionId);
+			oDeclaredIdentificationRequest.setIdentifiedVersionId(newVersionID);
 			oDeclaredIdentificationRequest.setIdentifiedUsageLevel(UsageLevel.SNIPPET);
 			oDeclaredIdentificationRequest.setIdentifiedLicenseInfo(identifiedLicenseInfo);
 			
-			svc.addDeclaredIdentification(targetProjectId, "/" + info.getFilePath(), oDeclaredIdentificationRequest);
+			return svc.addDeclaredIdentification(targetProjectId, "/" + targetInfo.getFilePath(), oDeclaredIdentificationRequest);
 			
 		// Exception
 		} else {
@@ -552,176 +818,106 @@ public class AIRSProtexService implements AIRSService {
 		return true;
 	}
 	
-
-	protected HashMap<String, List<ProtexIdentificationInfo>> getIdentificationInfoList(String projectId, HashMap<String, String> licenseLabelMap, HashMap<String, String> componentVersionLabelMap, PrintStream out) {
-		HashMap<String, List<ProtexIdentificationInfo>> identificationInfoFiles = svc.getIdentificationInfoList(projectId);
-		// when empty project (no pending/identify list) 
-		if (identificationInfoFiles == null)
-			return null; 
-		
-		for (Map.Entry<String, List<ProtexIdentificationInfo>> entrySet : identificationInfoFiles.entrySet()) {
-			String filePath = entrySet.getKey();
-			out.println("  > Creating info: " + filePath + "");
-			
-			for (ProtexIdentificationInfo info : identificationInfoFiles.get(filePath)) {
-				
-				// build summary map.
-				if (!"".equals(ObjectUtils.toString(info.getLicense()))) {
-					// Update License label map
-					if (!licenseLabelMap.containsKey(info.getLicense())) {
-						licenseLabelMap.put(info.getLicense(), this.getLicenseIDByName(info.getLicense()));
-					}	
-				}
-				
-				// Update component version label map
-				String componentId = null;
-				String versionId = null; 
-
-				ProtexIdentificationInfo compVer = this.getComponentIDAndVersionIDWithNames(info.getComponent(), info.getVersion());
-				// labal map has mapping info.
-				if (compVer != null) {
-					componentId = compVer.getComponentID();
-					versionId = compVer.getVersionID();
-				// else, query
-				} else {
-					componentId = this.getComponentIDByName(info.getComponent());
-					// String search => search comp Id in local
-					if (componentId == null) {
-						if (ProtexIdentificationInfo.STRING_SEARCH.equals(info.getDiscoveryType())) {
-							componentId = this.getLocalComponentId(projectId, info.getComponent(), licenseLabelMap.get(info.getLicense()), info.getLicense());
-						} else {
-							componentId = this.getComponentIDByNameAndVersionName(info.getComponent(), info.getVersion());
-							if (componentId == null) {
-								componentId = this.getComponentIDByNameAndLicenseIDAndVersionName(info.getComponent(), licenseLabelMap.get(info.getLicense()), info.getVersion());	
-							}
-						}	
-					}
-					versionId = this.getComponentVersionIDByComponentInfoAndVersionName(componentId, info.getComponent(), info.getVersion());
-				}
-				
-				// Update component version label map
-				// couldn't find component ID ... then skip
-				if (componentId == null) { // || versionId == null) {
-					log.info("cannot find component:" + info.getComponent() + "/version:" + info.getVersion() + "/license:" + licenseLabelMap.get(info.getLicense()));
-				} else {
-					String key = info.getComponent() + "#" + info.getVersion();					
-					String value = componentId + "#" + versionId;
-					if (!componentVersionLabelMap.containsKey(key)) {
-						if (!"#".equals(key)) {
-							componentVersionLabelMap.put(key, value);
-						}
-//if (value.endsWith("null") && !key.endsWith("specified")) {
-//	System.out.println(value);
-//}
-					}
-				}				
-				
-				
-			}
-			
+	protected String getLocalComponentIDByName(String projectID, String componentName) {
+		String key = projectID + "|" + componentName;
+		if (localComponentIDMap.containsKey(key)) {
+			return localComponentIDMap.get(key);
 		}
 		
-		return identificationInfoFiles;
+		String componentID = svc.getLocalComponentIDByProjectIDAndComponentName(projectID, componentName);
+		localComponentIDMap.put(key, componentID);
+		return componentID;
 	}
-
 	
-	
-	/////////////////////////////////////////////////
-	// License, Component, Version DB
-	/////////////////////////////////////////////////
-	protected String getLicenseIDByName(String licenseName) {
-		if (licenseLabelMap.containsKey(licenseName)) {
-			return licenseLabelMap.get(licenseName);
-		} else {
-			try {
-				GlobalLicense license  = svc.getLicenseAPI().getLicenseByName(licenseName);
-				licenseLabelMap.put(licenseName, license.getLicenseId());
-				
-				return license.getLicenseId();
-			} catch (SdkFault e) {
-				log.error(e);
-				return null;
-			}
+	protected String getCustomComponentIDByName(String componentName) {
+		String key = componentName;
+		if (customComponentIDMap.containsKey(key)) {
+			return customComponentIDMap.get(key);
 		}
-	}
-	
-	protected String getComponentIDByName(String componentName) {
-		if (componentMap.containsKey(componentName)) {
-			return componentMap.get(componentName);
-		} else {
-			try {
-				StandardComponent standardComponent = svc.getStandardComponentAPI().getStandardComponentByName(componentName);
-				componentMap.put(componentName, standardComponent.getComponentId());
-				return standardComponent.getComponentId();
-			} catch (SdkFault e) {
-				try {
-					CustomComponent customComponent = svc.getCustomComponentAPI().getCustomComponentByName(componentName);
-					componentMap.put(componentName, customComponent.getComponentId());
-					return customComponent.getComponentId();	
-				} catch (SdkFault e1) {
-					log.error("standardComponent: " + e.getMessage() + ", customComponent: " + e1.getMessage());
-					componentMap.put(componentName, null);
-					return null;
-				}
-			}
-		}
-	}
-	
-	protected String getComponentIDByNameAndVersionName(String componentName, String versionName) {
-		log.error("Cannot find component if by component name");
-		return null;
-	}
-	
-	protected String getComponentIDByNameAndLicenseIDAndVersionName(String componentName, String licenseId, String versionName) {
-		log.error("Cannot find component if by component name and version name");
-		return null;
-	}
-	
-	protected ProtexIdentificationInfo getComponentIDAndVersionIDWithNames(String componentName, String versionName) {
-		ProtexIdentificationInfo pinfo = new ProtexIdentificationInfo();
 		
-		String key = componentName + "#" + versionName;
-		if (componentVersionlabelMap.containsKey(key)) {
-			String label = componentVersionlabelMap.get(key);
-			if (label == null)
-				return null;
-			
-			// separate as a function
-			String[] items = StringUtils.split(label, "#");
-			pinfo.setComponentID(items[0]);
-			pinfo.setVersionID(items[1]);
-			
-			// check component id valid?
-			String dbComponentName = this.getComponentIDByName(componentName);
-			if (!ObjectUtils.toString(pinfo.getComponentID()).equals(dbComponentName)) {
-				// cache
-				componentVersionlabelMap.put(key, null);
-				return null;
-			}
-			return pinfo;
+		String componentID = svc.getCustomComponentIDByComponentName(componentName);
+		customComponentIDMap.put(key, componentID);
+        return componentID;
+	}
+	
+	protected String getNotStandardComponentIdByName(String projectId, String componentName) {
+		String componentID = this.getLocalComponentIDByName(projectId, componentName);
+		if (componentID == null) {
+			componentID = this.getCustomComponentIDByName(componentName);
 		}
-
-		ComponentVersion compVer;
+		return componentID;
+	}
+	
+	
+	///////////////////////////////////////////////////////////////////////////////////
+	// 
+	/////////////////////////////////////////////////////////////////////////////////
+	protected List<String> getComponentIDListByName(String componentName) {
+		List<String> componentIDList = new ArrayList<String>();
+		// Cannot get componentID with same names.
+		// just pick latest one
+		StandardComponent sc = null;
 		try {
-			compVer = svc.getComponentVersionAPI().getComponentVersionByName(componentName, versionName);
+			sc = svc.getStandardComponentAPI().getStandardComponentByName(componentName);
+			if (sc != null) {
+				componentIDList.add(sc.getName());
+			}			
+		} catch (SdkFault e) {
+			log.debug(e.getMessage());
+		}
+		return componentIDList;
+	}
+	protected String getComponentIDByName(String componentName) {
+		try {
+			StandardComponent sc = null;
+			sc = svc.getStandardComponentAPI().getStandardComponentByName(componentName);
+			if (sc != null) {
+				return sc.getComponentId();
+			} else {
+				return null;
+			}
 		} catch (SdkFault e) {
 			log.error(e.getMessage());
-			//log.error("Cannot find IDs by component: " + componentName + ", version: " + versionName);
-			// cache 
-			if (e.getMessage().contains("not found")) {
-				componentVersionlabelMap.put(key, null);
-			}
 			return null;
 		}
-		
-		componentVersionlabelMap.put(key, compVer.getComponentId() + "#" + compVer.getVersionId());
-		pinfo.setComponentID(compVer.getComponentId());
-		pinfo.setVersionID(compVer.getVersionId());
-		
-		return pinfo;
 	}
-
-	protected String getLocalComponentId(String projectID, String componentName, String licenseID, String licenseName) {
+	protected ProtexIdentificationInfo getComponentVersionIDWithNames(String componentName, String versionName) {
+		try {
+			ComponentVersion cv = svc.getComponentVersionAPI().getComponentVersionByName(componentName, versionName);
+			if (cv != null) {
+				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+				info.setComponentID(cv.getComponentId());
+				info.setVersionID(cv.getVersionId());
+				
+				return null;
+			} else {
+				return null;
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+	
+	protected ProtexIdentificationInfo getComponentVersionNamesWithIDs(String componentID, String versionID) {
+		try {
+			ComponentVersion cv = svc.getComponentVersionAPI().getComponentVersionById(componentID, versionID);
+			if (cv != null) {
+				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+				info.setComponent(cv.getComponentName());
+				info.setVersion(cv.getVersionName());
+				
+				return info;
+			} else {
+				return null;
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+	
+	protected String getLocalComponentIdWhenNotExsitingCreate(String projectID, String componentName, String licenseID, String licenseName) {
 		String key = projectID + "|" + componentName;
 		if (localComponentNameMap.containsKey(key)) {
 			return localComponentNameMap.get(key);
@@ -737,39 +933,9 @@ public class AIRSProtexService implements AIRSService {
 	        localComponentNameMap.put(key, componentID);	        
 	        
 	        return componentID;
-	        
 		} catch (SdkFault e) {
 			log.warn("createLocalComponent() failed: " + e.getMessage());
 			return null;
 		}
 	}
-	
-	protected String getComponentVersionIDByComponentInfoAndVersionName(String componentId, String componentName, String componentVersionName) {
-		if ("Unspecified".equals(componentVersionName)) {
-			return "unspecified";
-		}
-		
-		// find component name
-		ProtexIdentificationInfo pinfo = this.getComponentIDAndVersionIDWithNames(componentName, componentVersionName);
-		if (pinfo == null) {
-			return null;
-		} else {
-			return pinfo.getVersionID();
-		}
-	}
-
-//	// TODO - Local DB에서 긁어오도록 준비??!!!
-//	public String getLicenseIDByName(String licenceName) {
-//		return "";
-////		try {
-////			GlobalLicense license  = ProtexSDKAPIService.licenseAPI.getLicenseById(licenceName);
-////			return license.getLicenseId();
-////		} catch (SdkFault e) {
-////			log.warn(e);
-////		}
-////		
-////		return null;
-//	}
-	
-
 }

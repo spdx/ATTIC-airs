@@ -23,7 +23,7 @@ import java.io.Serializable;
  * 
  * @author sjh.yoo, ytaek.kim
  */
-public abstract class IdentificationInfo implements Serializable {
+public class IdentificationInfo implements Serializable {
 
 	private static final long serialVersionUID = 1L;
 	

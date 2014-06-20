@@ -20,6 +20,11 @@ airs-X.XX_lib/* - Executable Libraries
 3. What's New
 --------------
 
+
+### AIRS v0.8 2014041 (Protex SDK 6.3/SPDX 1.1) ###
+Enhance code match Identify function
+
+
 ### AIRS v0.7 2014041 (Protex SDK 6.3/SPDX 1.1) ###
 First Contribution
 

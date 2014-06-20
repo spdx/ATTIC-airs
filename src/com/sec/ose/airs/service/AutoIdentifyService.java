@@ -19,6 +19,7 @@ package com.sec.ose.airs.service;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -243,6 +244,12 @@ public class AutoIdentifyService {
 	
 	
 	public List<SPDXFileDTO> getFileListByComparingHashCodeAndIdentificaionInfo(List<Integer> srcPkgIdList, SPDXFileDTO targetFile, AutoIdentifyOptions opt) {
+		if (opt.isOverwrite() == true) {
+			if (targetFile.getIdentificationInfoList() != null && targetFile.getIdentificationInfoList().size() > 0) {
+				return new ArrayList<SPDXFileDTO>();
+			}
+		}
+		
 		List<SPDXFileDTO> sameFileList = mapper.getSameFileWithChecksum(srcPkgIdList, targetFile.getChecksum());
 
 		// ONLY ONE MATCHED

@@ -38,6 +38,7 @@ import com.blackducksoftware.sdk.protex.component.version.ComponentVersionApi;
 import com.blackducksoftware.sdk.protex.license.LicenseApi;
 import com.blackducksoftware.sdk.protex.project.ProjectApi;
 import com.blackducksoftware.sdk.protex.project.bom.BomApi;
+import com.blackducksoftware.sdk.protex.project.codetree.CodeTreeApi;
 import com.blackducksoftware.sdk.protex.project.codetree.CodeTreeNode;
 import com.blackducksoftware.sdk.protex.project.codetree.CodeTreeNodeType;
 import com.blackducksoftware.sdk.protex.project.codetree.PartialCodeTree;
@@ -61,6 +62,7 @@ import com.blackducksoftware.sdk.protex.report.SpdxPackageLicenseConclusionType;
 import com.blackducksoftware.sdk.protex.report.SpdxReportConfiguration;
 import com.blackducksoftware.sdk.protex.report.SpdxReportFormat;
 import com.blackducksoftware.sdk.protex.user.UserApi;
+import com.sec.ose.airs.domain.autoidentify.IdentificationInfo;
 import com.sec.ose.airs.domain.autoidentify.ProtexIdentificationInfo;
 
 /**
@@ -72,7 +74,7 @@ public class ProtexSDKAPIService {
 	private static Log log = LogFactory.getLog(ProtexSDKAPIService.class);
 	private static Long connectionTimeout = 30 * 60 * 1000L;
 	
-	public static final String REPORT_STRINGS[] = {
+	public static final String IDENTIFY_REPORT_STRINGS[] = {
 		"Resolution Type",
 		"Discovery Type",
 		"File/Folder",
@@ -84,7 +86,7 @@ public class ProtexSDKAPIService {
 		"Matched File",
 		"Search"
 	};
-		
+	
 	// TODO - Use spring!!
 	String protexServerProxyClassName = "com.blackducksoftware.sdk.protex.client.util.ProtexServerProxyV6_3";
 	Class<?> protexServerProxyClass = null;
@@ -101,7 +103,7 @@ public class ProtexSDKAPIService {
 	private BomApi bomAPI = null;
 	private DiscoveryApi discoveryAPI = null;
 	private IdentificationApi identificationAPI = null;
-//    private static CodeTreeApi codeTreeAPI = null;
+    private CodeTreeApi codeTreeAPI = null;
 	private ComponentVersionApi componentVersionAPI = null;
 	private CustomComponentApi customComponentAPI = null;
 	private LocalComponentApi localComponentAPI = null;
@@ -116,7 +118,7 @@ public class ProtexSDKAPIService {
 			licenseAPI = (LicenseApi)(protexServerProxyClass.getMethod("getLicenseApi").invoke(protexServerProxyObject));
 			discoveryAPI = (DiscoveryApi)(protexServerProxyClass.getMethod("getDiscoveryApi").invoke(protexServerProxyObject));
 			bomAPI = (BomApi)(protexServerProxyClass.getMethod("getBomApi").invoke(protexServerProxyObject));
-//			codeTreeAPI = (CodeTreeApi)(protexServerProxyClass.getMethod("getCodeTreeApi").invoke(protexServerProxyObject));
+			codeTreeAPI = (CodeTreeApi)(protexServerProxyClass.getMethod("getCodeTreeApi").invoke(protexServerProxyObject));
 			componentVersionAPI = (ComponentVersionApi)(protexServerProxyClass.getMethod("getComponentVersionApi").invoke(protexServerProxyObject));
 			identificationAPI = (IdentificationApi)(protexServerProxyClass.getMethod("getIdentificationApi").invoke(protexServerProxyObject));
 			standardComponentAPI = (StandardComponentApi)(protexServerProxyClass.getMethod("getStandardComponentApi").invoke(protexServerProxyObject));
@@ -165,7 +167,7 @@ public class ProtexSDKAPIService {
 	
 	
 	///////////////////////////////////////////////////////////////////////////////////
-	// AUTO Identify Functions
+	// AUTO Identify 
 	/////////////////////////////////////////////////////////////////////////////////
 	public String getSPDXReportContentString(String projectId, String packageName, String packageFileName, String organizationName, String creatorName, String creatorEmail) throws SdkFault {
         Report report = getSPDXReport(projectId, packageName, packageFileName, organizationName, creatorName, creatorEmail);
@@ -228,8 +230,6 @@ public class ProtexSDKAPIService {
 		try {
 			this.identificationAPI.addStringSearchIdentification(projectId, path, req, refreshMode);
 		} catch (SdkFault e) {
-//			ErrorCode ec = e.getFaultInfo().getErrorCode();
-//			log.error("ErrorCode : " + ec);
 			log.error(e.getMessage());
 			return false;
 		}
@@ -267,26 +267,137 @@ public class ProtexSDKAPIService {
 	// AUTO Identify END
 	/////////////////////////////////////////////////////////////////////////////////
 	
+	public HashMap<String, List<IdentificationInfo>> getAllPendingListMap(String projectId) {
+		HashMap<String, List<IdentificationInfo>> pendingListMap = new HashMap<String, List<IdentificationInfo>>();
+		Report report = this.getAllPendingListReport(projectId);
+		
+		BufferedReader XmlReportReader = null;
+		if(report != null && report.getFileContent() != null) {
+			try {
+				XmlReportReader = new BufferedReader(new InputStreamReader(report.getFileContent().getInputStream(),"UTF-8"));
+				// didn't use XML SAX Parser, because
+				// 1. blackduck-XML format parsing error
+				// 2. XML parser might be more inefficient in performance(speed/memory)  
+
+				// move to data point
+				while (!XmlReportReader.readLine().trim().startsWith("<tbody"));
+				while (!XmlReportReader.readLine().trim().startsWith("<tbody"));
+				
+				// Read data lines
+				// "File", 0
+				// "Matched File",10
+				//
+				// HEADER:
+				// 0	        <th nowrap="nowrap">File</th>
+				// 1	        <th nowrap="nowrap">Size</th>
+				// 2            <th nowrap="nowrap">File Line</th>
+				// 3            <th nowrap="nowrap">Total Lines</th>
+				// 4            <th nowrap="nowrap">Component</th>
+				// 5            <th nowrap="nowrap">Version</th>
+				// 6            <th nowrap="nowrap">License</th>
+				// 7            <th nowrap="nowrap">Usage</th>
+				// 8            <th nowrap="nowrap">Status</th>
+				// 9            <th nowrap="nowrap">%</th>
+				// 10           <th nowrap="nowrap">Matched File</th>
+				// 11           <th nowrap="nowrap">Matched File Line</th>
+				// 12           <th nowrap="nowrap">File Comment</th>
+				// 13           <th nowrap="nowrap">Component Comment</th>
+				
+				// FORMAT:
+				//				 <tr >
+				//			     	 <td >
+				//			     blowfish.c
+				//			     </td>
+				//			     	 <td align='right'>
+				String line = XmlReportReader.readLine().trim();
+				int rowNum = 0;
+				while (line.startsWith("<tr")) {
+					rowNum = 0;
+					String key = null;
+					IdentificationInfo info = new IdentificationInfo();
+					
+					// skip to data 
+					line = XmlReportReader.readLine().trim();
+					while (line.startsWith("<td")) {
+						// read next line (data)
+						line = XmlReportReader.readLine().trim();
+
+						switch(rowNum) {
+							case (0):
+							{
+								key = StringEscapeUtils.unescapeXml(line);
+								break;
+							}
+							case (4):
+							{
+								info.setComponent(StringEscapeUtils.unescapeXml(line));
+								break;
+							}
+							case (5):
+							{
+								info.setVersion(StringEscapeUtils.unescapeXml(line));
+								break;
+							}
+							case (6):
+							{
+								info.setLicense(StringEscapeUtils.unescapeXml(line));
+								break;
+							}
+							case (10):
+							{
+								info.setMatchedFile(StringEscapeUtils.unescapeXml(line));
+								break;
+							}
+						}
+						rowNum++;
+						// </td>
+						line = XmlReportReader.readLine();
+						// find <td
+						line = XmlReportReader.readLine().trim();
+						
+						if (line.equals("</tr>")) {
+							break;
+						}
+					}
+
+					if (!pendingListMap.containsKey(key)) {
+						pendingListMap.put(key, new ArrayList<IdentificationInfo>());
+					}
+					pendingListMap.get(key).add(info);
+					
+					line = XmlReportReader.readLine().trim();
+				}
+				
+			} catch(IOException e) {
+				log.error("[ERROR] XML fileIO failed: " + e.getMessage());
+				return null;
+			}
+		}
+		
+		return pendingListMap;
+	}
 	
 	
 	
 	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	public Report getAllPendingListReport(String projectId) {		
+		ReportTemplateRequest reportTemplate = new ReportTemplateRequest();
+
+		reportTemplate.setTitle("Code Matches - Precision");
+		reportTemplate.setForced(Boolean.TRUE);
+		
+		ReportSection section = new ReportSection();
+		section.setLabel("Code Matches - Precision");
+		section.setSectionType(ReportSectionType.CODE_MATCHES_PRECISION);
+		reportTemplate.getSections().add(section);
+		
+		try {
+			return this.reportAPI.generateAdHocProjectReport(projectId, reportTemplate, ReportFormat.HTML);
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
 	
 	private SpdxReportConfiguration getSPDXReportConfiguration(String packageName, String packageFileName, String organizationName, String creatorName, String creatorEmail, String protexUrl) {
 		SpdxReportConfiguration spdxReportConfiguration = new SpdxReportConfiguration();
@@ -342,8 +453,6 @@ public class ProtexSDKAPIService {
         return spdxReportConfiguration;
 	}
 	
-	
-	
 	public HashMap<String, List<ProtexIdentificationInfo>> getIdentificationInfoList(String projectId) {
 		HashMap<String, List<ProtexIdentificationInfo>> identificationInfoFiles = new HashMap<String, List<ProtexIdentificationInfo>>();
 		
@@ -373,7 +482,7 @@ public class ProtexSDKAPIService {
 				// 2. XML parser might be more inefficient in performance(speed/memory)  
 
 				// move to data point
-				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// Remove Top Disclaimer 
+				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// Top Disclaimer Á¦°Å
 				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// move to data point
 
 				
@@ -381,13 +490,13 @@ public class ProtexSDKAPIService {
 				String line = XmlReportReader.readLine();
 				
 				// read index in seq[]
-				// seq[0] has Report_strings info on the first lin
+				// seq[0] has Report_strings info on the first line
 				int rowNum = 1;
 				while (!line.startsWith("</Row")) {
 					String content = line.replaceAll("\\<.*?\\>", "");
 					if (!"".equals(content)) {
-						for (int fi = 0; fi < ProtexSDKAPIService.REPORT_STRINGS.length; fi++) {
-							if (ProtexSDKAPIService.REPORT_STRINGS[fi].equals(content)) {
+						for (int fi = 0; fi < ProtexSDKAPIService.IDENTIFY_REPORT_STRINGS.length; fi++) {
+							if (ProtexSDKAPIService.IDENTIFY_REPORT_STRINGS[fi].equals(content)) {
 								seq.add(fi);
 								break;
 							}
@@ -535,8 +644,49 @@ public class ProtexSDKAPIService {
 
 	
 	
+	public String getLicenseIdByName(String licenseName) {
+		try {
+			return this.getLicenseAPI().getLicenseByName(licenseName).getLicenseId();
+		} catch (SdkFault e) {
+			log.warn(e.getMessage());
+		} catch (NullPointerException e) {
+			log.warn(e.getMessage());
+		}
+		return null;
+	}
 	
+	public String getComponentNameByProjectIDAndComponentID(String projectID, String ComponentID) {
+		try {
+			return this.getProjectAPI().getComponentById(projectID, ComponentID).getName();
+		} catch (SdkFault e) {
+			log.warn(e.getMessage());
+		} catch (NullPointerException e) {
+			log.warn(e.getMessage());
+		}
+		return null;	
+	}
 	
+	public String getLocalComponentIDByProjectIDAndComponentName(String projectID, String componentName) {
+		try {
+			return this.getLocalComponentAPI().getLocalComponentByName(projectID, componentName).getComponentId();
+		} catch (SdkFault e) {
+			log.warn(e.getMessage());
+		} catch (NullPointerException e) {
+			log.info(e.getMessage());
+		}
+		return null;
+	}
+	
+	public String getCustomComponentIDByComponentName(String componentName) {
+		try {
+			return this.getCustomComponentAPI().getCustomComponentByName(componentName).getComponentId();	        
+		} catch (SdkFault e) {
+			log.warn(e.getMessage());
+		} catch (NullPointerException e) {
+			log.info(e.getMessage());
+		}
+		return null;
+	}
 	
 	public ProjectApi getProjectAPI() {
 		return projectAPI;
@@ -624,5 +774,13 @@ public class ProtexSDKAPIService {
 
 	public void setStandardComponentAPI(StandardComponentApi standardComponentAPI) {
 		this.standardComponentAPI = standardComponentAPI;
+	}
+
+	public CodeTreeApi getCodeTreeAPI() {
+		return this.codeTreeAPI;
+	}
+
+	public void setCodeTreeAPI(CodeTreeApi codeTreeAPI) {
+		this.codeTreeAPI = codeTreeAPI;
 	}
 }

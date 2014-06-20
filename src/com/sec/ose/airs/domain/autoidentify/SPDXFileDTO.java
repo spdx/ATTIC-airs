@@ -17,6 +17,7 @@
 package com.sec.ose.airs.domain.autoidentify;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 
@@ -34,6 +35,7 @@ public class SPDXFileDTO implements Serializable {
 	String checksum;
 	String concludedLicense;
 	String comment;
+	List<IdentificationInfo> identificationInfoList;
 	
 	public String getName() {
 		return name;
@@ -74,7 +76,10 @@ public class SPDXFileDTO implements Serializable {
 	public void setPackageId(int packageId) {
 		this.packageId = packageId;
 	}
-	
-	
-	
+	public List<IdentificationInfo> getIdentificationInfoList() {
+		return identificationInfoList;
+	}
+	public void setIdentificationInfoList(List<IdentificationInfo> identificationInfoList) {
+		this.identificationInfoList = identificationInfoList;
+	}
 }
