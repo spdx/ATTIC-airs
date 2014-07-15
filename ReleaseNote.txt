@@ -9,11 +9,11 @@ AIRS is a stand-alone tool which has a command line interface, and provides 2 ma
   1) Export: Export SPDX file which including identification information of a given project. 
   2) Auto Identify: Automatically identify the target project with the given SPDX file which has the exported identification information
 
-2. DISTRIBUTED FILES
+2. DISTRIBUTED FILES (For binaries)
 ---------------------
 
 airs-X.X.jar - Application core
-ldbAutoIdentify.db - database for runnnig application 
+ldbAIRS.db - database for runnnig application 
 ReleaseNote.txt - Release Note
 airs-X.XX_lib/* - Executable Libraries
 
@@ -21,11 +21,14 @@ airs-X.XX_lib/* - Executable Libraries
 --------------
 
 
-### AIRS v0.8 2014041 (Protex SDK 6.3/SPDX 1.1) ###
+### AIRS v0.8 20140715 (Protex SDK 6.3/SPDX 1.1) ###
+Minor patch: vacuum DB file, +gitignore files
+
+### AIRS v0.8 20140620 (Protex SDK 6.3/SPDX 1.1) ###
 Enhance code match Identify function
 
 
-### AIRS v0.7 2014041 (Protex SDK 6.3/SPDX 1.1) ###
+### AIRS v0.7 20140411 (Protex SDK 6.3/SPDX 1.1) ###
 First Contribution
 
 

@@ -39,8 +39,6 @@ import org.spdx.rdfparser.SPDXFile;
 
 import com.blackducksoftware.sdk.fault.SdkFault;
 import com.blackducksoftware.sdk.protex.common.UsageLevel;
-import com.blackducksoftware.sdk.protex.component.standard.StandardComponent;
-import com.blackducksoftware.sdk.protex.component.version.ComponentVersion;
 import com.blackducksoftware.sdk.protex.license.LicenseInfo;
 import com.blackducksoftware.sdk.protex.project.codetree.PartialCodeTree;
 import com.blackducksoftware.sdk.protex.project.codetree.discovery.CodeMatchDiscovery;
@@ -52,7 +50,6 @@ import com.blackducksoftware.sdk.protex.project.codetree.identification.CodeTree
 import com.blackducksoftware.sdk.protex.project.codetree.identification.DeclaredIdentificationRequest;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.Identification;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.StringSearchIdentificationRequest;
-import com.blackducksoftware.sdk.protex.project.localcomponent.LocalComponentRequest;
 import com.blackducksoftware.sdk.protex.report.Report;
 import com.sec.ose.airs.Properties;
 import com.sec.ose.airs.domain.autoidentify.AutoIdentifyOptions;
@@ -256,7 +253,7 @@ public class AIRSProtexService implements AIRSService {
 				if (info.getVersionID() == null || "null".equalsIgnoreCase(info.getVersionID()) || "Unspecified".equalsIgnoreCase(info.getVersionID())) {
 					info.setComponent(svc.getComponentNameByProjectIDAndComponentID(projectId, info.getComponentID()));
 				} else {
-					ProtexIdentificationInfo nameInfo = getComponentVersionNamesWithIDs(info.getComponentID(), info.getVersionID());
+					ProtexIdentificationInfo nameInfo = svc.getComponentVersionNamesWithIDs(info.getComponentID(), info.getVersionID());
 					if (nameInfo == null) {
 						continue;
 					}
@@ -775,9 +772,9 @@ public class AIRSProtexService implements AIRSService {
 			String orgComponentId = null;
 			String orgVersionId = null;
 			if (targetInfo.getComponent() != null) {
-				ProtexIdentificationInfo orgInfo = this.getComponentVersionIDWithNames(targetInfo.getComponent(), targetInfo.getVersion());			
+				ProtexIdentificationInfo orgInfo = svc.getComponentVersionIDWithNames(targetInfo.getComponent(), targetInfo.getVersion());			
 				if (orgInfo == null) {
-					orgComponentId = this.getComponentIDByName(targetInfo.getComponent());
+					orgComponentId = svc.getComponentIDByName(targetInfo.getComponent());
 				} else {
 					orgComponentId = orgInfo.getComponentID();
 					orgVersionId = orgInfo.getVersionID();
@@ -848,94 +845,18 @@ public class AIRSProtexService implements AIRSService {
 		return componentID;
 	}
 	
-	
-	///////////////////////////////////////////////////////////////////////////////////
-	// 
-	/////////////////////////////////////////////////////////////////////////////////
-	protected List<String> getComponentIDListByName(String componentName) {
-		List<String> componentIDList = new ArrayList<String>();
-		// Cannot get componentID with same names.
-		// just pick latest one
-		StandardComponent sc = null;
-		try {
-			sc = svc.getStandardComponentAPI().getStandardComponentByName(componentName);
-			if (sc != null) {
-				componentIDList.add(sc.getName());
-			}			
-		} catch (SdkFault e) {
-			log.debug(e.getMessage());
-		}
-		return componentIDList;
-	}
-	protected String getComponentIDByName(String componentName) {
-		try {
-			StandardComponent sc = null;
-			sc = svc.getStandardComponentAPI().getStandardComponentByName(componentName);
-			if (sc != null) {
-				return sc.getComponentId();
-			} else {
-				return null;
-			}
-		} catch (SdkFault e) {
-			log.error(e.getMessage());
-			return null;
-		}
-	}
-	protected ProtexIdentificationInfo getComponentVersionIDWithNames(String componentName, String versionName) {
-		try {
-			ComponentVersion cv = svc.getComponentVersionAPI().getComponentVersionByName(componentName, versionName);
-			if (cv != null) {
-				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
-				info.setComponentID(cv.getComponentId());
-				info.setVersionID(cv.getVersionId());
-				
-				return null;
-			} else {
-				return null;
-			}
-		} catch (SdkFault e) {
-			log.error(e.getMessage());
-			return null;
-		}
-	}
-	
-	protected ProtexIdentificationInfo getComponentVersionNamesWithIDs(String componentID, String versionID) {
-		try {
-			ComponentVersion cv = svc.getComponentVersionAPI().getComponentVersionById(componentID, versionID);
-			if (cv != null) {
-				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
-				info.setComponent(cv.getComponentName());
-				info.setVersion(cv.getVersionName());
-				
-				return info;
-			} else {
-				return null;
-			}
-		} catch (SdkFault e) {
-			log.error(e.getMessage());
-			return null;
-		}
-	}
-	
 	protected String getLocalComponentIdWhenNotExsitingCreate(String projectID, String componentName, String licenseID, String licenseName) {
 		String key = projectID + "|" + componentName;
 		if (localComponentNameMap.containsKey(key)) {
 			return localComponentNameMap.get(key);
 		}
-		
-		try {
-			LocalComponentRequest localComponentRequest = new LocalComponentRequest();
-	        localComponentRequest.setContextProjectId(projectID);
-	        localComponentRequest.setName(componentName);
-	        localComponentRequest.setLicenseText(licenseName.getBytes());
-	        localComponentRequest.setBasedOnLicenseId(licenseID);
-	        String componentID = svc.getLocalComponentAPI().createLocalComponent(localComponentRequest);
-	        localComponentNameMap.put(key, componentID);	        
-	        
-	        return componentID;
-		} catch (SdkFault e) {
-			log.warn("createLocalComponent() failed: " + e.getMessage());
-			return null;
-		}
+
+        String componentID = svc.createLocalComponent(projectID, componentName, licenseID, licenseName);
+        if (componentID != null) {
+        	localComponentNameMap.put(key, componentID);
+        	return componentID;
+        } else {
+        	return null;
+        }
 	}
 }

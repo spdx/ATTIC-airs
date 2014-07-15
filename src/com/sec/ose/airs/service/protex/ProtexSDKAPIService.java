@@ -33,7 +33,9 @@ import com.blackducksoftware.sdk.fault.SdkFault;
 import com.blackducksoftware.sdk.protex.common.BomRefreshMode;
 import com.blackducksoftware.sdk.protex.common.StringSearchPatternOriginType;
 import com.blackducksoftware.sdk.protex.component.custom.CustomComponentApi;
+import com.blackducksoftware.sdk.protex.component.standard.StandardComponent;
 import com.blackducksoftware.sdk.protex.component.standard.StandardComponentApi;
+import com.blackducksoftware.sdk.protex.component.version.ComponentVersion;
 import com.blackducksoftware.sdk.protex.component.version.ComponentVersionApi;
 import com.blackducksoftware.sdk.protex.license.LicenseApi;
 import com.blackducksoftware.sdk.protex.project.ProjectApi;
@@ -49,6 +51,7 @@ import com.blackducksoftware.sdk.protex.project.codetree.identification.Declared
 import com.blackducksoftware.sdk.protex.project.codetree.identification.IdentificationApi;
 import com.blackducksoftware.sdk.protex.project.codetree.identification.StringSearchIdentificationRequest;
 import com.blackducksoftware.sdk.protex.project.localcomponent.LocalComponentApi;
+import com.blackducksoftware.sdk.protex.project.localcomponent.LocalComponentRequest;
 import com.blackducksoftware.sdk.protex.report.Report;
 import com.blackducksoftware.sdk.protex.report.ReportApi;
 import com.blackducksoftware.sdk.protex.report.ReportFormat;
@@ -482,7 +485,7 @@ public class ProtexSDKAPIService {
 				// 2. XML parser might be more inefficient in performance(speed/memory)  
 
 				// move to data point
-				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// Top Disclaimer Á¦°Å
+				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// Top Disclaimer ï¿½ï¿½ï¿½ï¿½
 				while (!XmlReportReader.readLine().startsWith("<Row ss:Index=\"2\""));	// move to data point
 
 				
@@ -688,6 +691,75 @@ public class ProtexSDKAPIService {
 		return null;
 	}
 	
+	public String getComponentIDByName(String componentName) {
+		try {
+			StandardComponent sc = null;
+			sc = this.getStandardComponentAPI().getStandardComponentByName(componentName);
+			if (sc != null) {
+				return sc.getComponentId();
+			} else {
+				return null;
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+	public ProtexIdentificationInfo getComponentVersionIDWithNames(String componentName, String versionName) {
+		try {
+			ComponentVersion cv = this.getComponentVersionAPI().getComponentVersionByName(componentName, versionName);
+			if (cv != null) {
+				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+				info.setComponentID(cv.getComponentId());
+				info.setVersionID(cv.getVersionId());
+				
+				return null;
+			} else {
+				return null;
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+	
+	public ProtexIdentificationInfo getComponentVersionNamesWithIDs(String componentID, String versionID) {
+		try {
+			ComponentVersion cv = this.getComponentVersionAPI().getComponentVersionById(componentID, versionID);
+			if (cv != null) {
+				ProtexIdentificationInfo info = new ProtexIdentificationInfo();
+				info.setComponent(cv.getComponentName());
+				info.setVersion(cv.getVersionName());
+				
+				return info;
+			} else {
+				return null;
+			}
+		} catch (SdkFault e) {
+			log.error(e.getMessage());
+			return null;
+		}
+	}
+	
+	public String createLocalComponent(String projectID, String componentName, String licenseID, String licenseName) {
+		try {
+			LocalComponentRequest localComponentRequest = new LocalComponentRequest();
+	        localComponentRequest.setContextProjectId(projectID);
+	        localComponentRequest.setName(componentName);
+	        localComponentRequest.setLicenseText(licenseName.getBytes());
+	        localComponentRequest.setBasedOnLicenseId(licenseID);
+	        return this.getLocalComponentAPI().createLocalComponent(localComponentRequest);
+		} catch (SdkFault e) {
+			log.warn("createLocalComponent() failed: " + e.getMessage());
+			return null;
+		}
+	}
+	
+	
+	
+	
+	
+	// getter and setter
 	public ProjectApi getProjectAPI() {
 		return projectAPI;
 	}
