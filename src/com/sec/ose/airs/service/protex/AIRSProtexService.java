@@ -58,6 +58,8 @@ import com.sec.ose.airs.domain.autoidentify.IdentificationInfo;
 import com.sec.ose.airs.domain.autoidentify.ProtexIdentificationInfo;
 import com.sec.ose.airs.domain.autoidentify.SPDXFileDTO;
 import com.sec.ose.airs.domain.autoidentify.SPDXPackageDTO;
+import com.sec.ose.airs.persistence.protex.CacheKBMapper;
+import com.sec.ose.airs.persistence.protex.CacheKBMapperImpl;
 import com.sec.ose.airs.service.AIRSService;
 import com.sec.ose.airs.service.AutoIdentifyService;
 
@@ -70,6 +72,7 @@ public class AIRSProtexService implements AIRSService {
 	private static Log log = LogFactory.getLog(AIRSProtexService.class);
 	
 	ProtexSDKAPIService svc = new ProtexSDKAPIService();
+	CacheKBMapper cacheKBMapper = new CacheKBMapperImpl();
 	
 	// string literals
 	final String LICENSE_DELIMITER = "AIRS_LABELMAP_LICENSEID";
@@ -253,7 +256,7 @@ public class AIRSProtexService implements AIRSService {
 				if (info.getVersionID() == null || "null".equalsIgnoreCase(info.getVersionID()) || "Unspecified".equalsIgnoreCase(info.getVersionID())) {
 					info.setComponent(svc.getComponentNameByProjectIDAndComponentID(projectId, info.getComponentID()));
 				} else {
-					ProtexIdentificationInfo nameInfo = svc.getComponentVersionNamesWithIDs(info.getComponentID(), info.getVersionID());
+					ProtexIdentificationInfo nameInfo = this.getComponentVersionNamesWithIDs(info.getComponentID(), info.getVersionID());
 					if (nameInfo == null) {
 						continue;
 					}
@@ -654,7 +657,7 @@ public class AIRSProtexService implements AIRSService {
 			if (customLicenseIDMap.containsKey(srcInfo.getLicense())) {
 				newLicenseId = customLicenseIDMap.get(srcInfo.getLicense());
 			} else {	
-				newLicenseId = svc.getLicenseIdByName(srcInfo.getLicense());
+				newLicenseId = this.getLicenseIdByName(srcInfo.getLicense());
 				customLicenseIDMap.put(srcInfo.getLicense(), newLicenseId);
 			}
 		}
@@ -772,9 +775,9 @@ public class AIRSProtexService implements AIRSService {
 			String orgComponentId = null;
 			String orgVersionId = null;
 			if (targetInfo.getComponent() != null) {
-				ProtexIdentificationInfo orgInfo = svc.getComponentVersionIDWithNames(targetInfo.getComponent(), targetInfo.getVersion());			
+				ProtexIdentificationInfo orgInfo = this.getComponentVersionIDWithNames(targetInfo.getComponent(), targetInfo.getVersion());			
 				if (orgInfo == null) {
-					orgComponentId = svc.getComponentIDByName(targetInfo.getComponent());
+					orgComponentId = this.getComponentIDByName(targetInfo.getComponent());
 				} else {
 					orgComponentId = orgInfo.getComponentID();
 					orgVersionId = orgInfo.getVersionID();
@@ -814,6 +817,57 @@ public class AIRSProtexService implements AIRSService {
 		}
 		return true;
 	}
+	
+	/////////////////////////////////////////////
+	// Use Cache KB
+	public ProtexIdentificationInfo getComponentVersionIDWithNames(String componentName, String versionName) {
+		ProtexIdentificationInfo info = cacheKBMapper.getComponentIDAndVersionIDWithNames(componentName, versionName);
+		if (info == null) {
+			info = svc.getComponentVersionIDWithNames(componentName, versionName);
+			if (info != null) {
+				cacheKBMapper.insertComponentVersion(info.getComponentID(), componentName, info.getVersionID(), versionName);
+			}
+		}
+		
+		return info;
+	}
+	
+	public String getComponentIDByName(String componentName) {
+		String componentID = cacheKBMapper.getComponentIDByName(componentName);
+		if (componentID == null) {
+			componentID = svc.getComponentIDByName(componentName);
+			if (componentID != null) {
+				cacheKBMapper.insertComponent(componentID, componentName);
+			}
+		}
+		return componentID;
+	}
+	
+	public String getLicenseIdByName(String licenseName) {
+		String licenseID = cacheKBMapper.getLicenseIDByName(licenseName);
+		
+		if (licenseID == null) { 
+			licenseID = svc.getLicenseIdByName(licenseName);
+			if (licenseID != null) {
+				cacheKBMapper.insertLicense(licenseID, licenseName);
+			}
+		}
+		return licenseID;
+	}
+	
+	public ProtexIdentificationInfo getComponentVersionNamesWithIDs(String componentID, String versionID) {
+		ProtexIdentificationInfo info = cacheKBMapper.getComponentVersionNamesWithIDs(componentID, versionID);
+		if (info == null) {
+			info = svc.getComponentVersionNamesWithIDs(componentID, versionID);
+			if (info != null) {
+				cacheKBMapper.insertComponentVersion(componentID, info.getComponent(), versionID, info.getVersion());
+			}
+		}
+		
+		return info;
+	}
+	/////////////////////////////////////////////
+	
 	
 	protected String getLocalComponentIDByName(String projectID, String componentName) {
 		String key = projectID + "|" + componentName;

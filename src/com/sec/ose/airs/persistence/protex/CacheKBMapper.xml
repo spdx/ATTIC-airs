@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sec.ose.airs.persistence.protex.ProtexKBMapper">
+	
+	<select id="getComponentIDByName" parameterType="String" resultType="String">
+		SELECT
+			id
+		FROM
+			component
+		WHERE
+			name = #{id}
+		LIMIT 1
+	</select>
+	
+	<select id="getComponentVersionIDByComponentIDAndVersionName" parameterType="java.util.HashMap" resultType="String">
+		SELECT
+			version_id
+		FROM
+			component_version
+		WHERE
+			component_id = #{componentId}
+			AND
+			version_name = #{componentVersionName}
+	</select>
+	
+	<select id="getLicenseIDByName" parameterType="String" resultType="String">
+		SELECT
+			id
+		FROM
+			license
+		WHERE
+			name = #{id}
+			OR
+			modified = #{id}
+	</select>
+	
+	<select id="getLicenseNameByID" parameterType="String" resultType="String">
+		SELECT
+			name
+		FROM
+			license
+		WHERE
+			id = #{name} 
+	</select>
+	
+	<select id="getComponentIDByNameAndVersionName" parameterType="map" resultType="String">
+		SELECT
+			component_id
+		FROM
+			component_version
+		WHERE
+			component_name = #{componentName}
+			AND
+			version_name = #{versionName}
+	</select>
+	
+	<select id="getComponentIDByNameAndLicenseIDAndVersionName" parameterType="map" resultType="String">
+		SELECT
+			component_id
+		FROM
+			component_version
+		WHERE
+			component_name = #{componentName}
+			AND
+			license_id = #{licenseId}
+			AND
+			version_name = #{versionName}
+	</select>
+	
+	<select id="getComponentIDAndVersionIDWithNames" parameterType="map" resultType="com.sec.ose.airs.domain.autoidentify.ProtexIdentificationInfo">
+		SELECT
+			component_id as componentID,
+			version_id as versionID
+		FROM
+			component_version
+		WHERE
+			component_name = #{componentName}
+			AND
+			version_name = #{versionName}
+		LIMIT 1
+	</select>
+	
+	<select id="getComponentVersionNamesWithIDs" parameterType="map" resultType="com.sec.ose.airs.domain.autoidentify.ProtexIdentificationInfo">
+		SELECT
+			component_name as componentName,
+			version_name as versionName
+		FROM
+			component_version
+		WHERE
+			component_id = #{componentID}
+			AND
+			version_id = #{versionID}
+		LIMIT 1
+	</select>
+	
+	<insert id="insertComponent">
+		INSERT INTO component
+		(
+			id,
+			name
+		) VALUES (
+			#{componentID},
+			#{componentName}
+		)
+	</insert>
+	
+	<insert id="insertComponentVersion">
+		INSERT INTO component_version
+		(
+			component_id,
+			component_name,
+			version_id,
+			version_name
+		) VALUES (
+			#{componentID},
+			#{componentName},
+			#{versionID},
+			#{versionName}
+		)
+	</insert>
+	
+	<insert id="insertLicense">
+		INSERT INTO license
+		(
+			id,
+			name
+		) VALUES (
+			#{licenseID},
+			#{licenseName}
+		)
+	</insert>
+	
+</mapper>
