@@ -1,3 +1,5 @@
+This repository has been moved to archive status as of 9 January 2022
+
 How to execute AIRS
 
 1. Below are necessary for running AIRS
